@@ -1,0 +1,145 @@
+policies:
+
+##########
+# EC2
+##########
+
+# Terminate old instances
+#=========================
+
+  # mark instances older than 1 day for termination; send email
+  - name: ec2-old-instances-mark-for-termination
+    resource: ec2
+    mode:
+      type: periodic
+      role: arn:aws:iam::{account_id}:role/cloud-custodian-sandbox
+      schedule: "rate(1 day)"
+    description: |
+      Find instances older than one day, and mark for termination
+    filters:
+      - type: instance-age
+        op: gte
+        hours: 4
+        # days: 1
+      - "tag:KeepAlive": absent
+      - "tag:maid_status": absent
+      - "tag:Custodian": present
+
+    actions:
+      - type: mark-for-op
+        op: terminate
+        days: 4
+      - type: notify
+        template: default
+        subject: 'These sandbox account resources will be deleted in 4 days unless you add a KeepAlive tag'
+        to:
+          - test@example.com
+          # - resource-owner
+        # owner_absent_contact:
+        #   - test@example.com
+        transport:
+          type: sqs
+          queue: https://sqs.us-west-2.amazonaws.com/{accountId}/cloud-custodian-mailer
+
+  # terminate previously-marked instances
+  - name: ec2-old-instances-terminate
+    resource: ec2
+    mode:
+      type: periodic
+      role: arn:aws:iam::{account_id}:role/cloud-custodian-sandbox
+      schedule: "rate(1 day)"
+    description: |
+      Find instances marked for termination, and terminate them
+    filters:
+      - type: marked-for-op
+        op: terminate
+      - "tag:KeepAlive": absent
+      - "tag:Custodian": present
+      - or:
+        - "State.Name": pending
+        - "State.Name": running
+        - "State.Name": stopping
+        - "State.Name": stopped
+    actions:
+      - terminate
+      - type: notify
+        template: default
+        subject: 'These sandbox account resources have been deleted'
+        to:
+          - test@example.com
+          # - resource-owner
+        # owner_absent_contact:
+        #   - test@example.com
+        transport:
+          type: sqs
+          queue: https://sqs.us-west-2.amazonaws.com/{accountId}/cloud-custodian-mailer
+
+# unmark instances with keepalive tag
+
+  # # for instances with KeepAlive tag, older than 14 days, ask if still needed
+  # - name: ec2-old-instances-check-keepalives
+  #   resource: ec2
+  #   mode:
+  #     type: periodic
+  #     role: arn:aws:iam::{account_id}:role/cloud-custodian-sandbox
+  #     schedule: "rate(1 day)"
+  #   description: |
+  #     Find instances with KeepAlive tags older than 14 days, and send reminder
+  #   filters:
+  #     - type: instance-age
+  #       op: gte
+  #       # hours: 4
+  #       days: 14
+  #     - "tag:KeepAlive": present
+  #     - "tag:Custodian": true
+  #   actions:
+  #     - type: notify
+  #       template: default
+  #       template_format: 'html'
+  #       subject: 'These sandbox account resources have KeepAlive tags. Do you still need them?'
+  #       to:
+  #         - resource-owner
+  #       # owner_absent_contact:
+  #       #   - test@example.com
+  #       transport:
+  #         type: sqs
+  #         queue: https://sqs.us-west-2.amazonaws.com/{accountId}/cloud-custodian-mailer
+
+# repeat above for:
+#   EBS unattached volumes
+#   ALBs
+#   Elastic IPs
+#   RDS instances
+#   Glue jobs?
+
+
+# # delete RDS instances daily
+#   - name: RDS-terminate-old-instances
+#     resource: rds
+#     mode:
+#       type: periodic
+#       role: arn:aws:iam::{account_id}:role/cloud-custodian-sandbox
+#       schedule: "rate(45 03 ? * Tue-Sat *)"
+#     comment: |
+#       # Terminate all instances that are older than 4 hours
+#     filters:
+#       - "tag:KeepAlive": absent
+#     actions:
+#       - delete
+#         skip-snapshot: true
+
+# policies:
+#   - name: c7n-mailer-test
+#     resource: sqs
+#     filters:
+#      - "tag:MailerTest": absent
+#     actions:
+#       - type: notify
+#         template: default
+#         priority_header: '2'
+#         subject: testing the c7n mailer
+#         to:
+#           - test@example.com
+#         transport:
+#           type: sqs
+#           queue: https://sqs.us-west-2.amazonaws.com/{accountId}/cloud-custodian-mailer
